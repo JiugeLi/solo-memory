@@ -2,9 +2,17 @@
   "name": "solo-memory",
   "version": "1.0.0",
   "description": "Local cross-tool AI chat history search and project recall CLI",
-  "bin": { "solo-memory": "./dist/solo-memory.js" },
-  "files": ["dist/solo-memory.js", "README.md"],
-  "repository": { "type": "git", "url": "https://github.com/JiugeLi/solo-memory.git" },
+  "bin": {
+    "solo-memory": "dist/solo-memory.js"
+  },
+  "files": [
+    "dist/solo-memory.js",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JiugeLi/solo-memory.git"
+  },
   "homepage": "https://github.com/JiugeLi/solo-memory#readme",
   "license": "MIT",
   "scripts": {
@@ -12,5 +20,7 @@
     "prepack": "npm run build",
     "test": "node --disable-warning=ExperimentalWarning --test"
   },
-  "engines": { "node": ">=22.5.0" }
+  "engines": {
+    "node": ">=22.5.0"
+  }
 }

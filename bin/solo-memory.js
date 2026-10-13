@@ -6,7 +6,8 @@ const os = require('node:os');
 const { DatabaseSync } = require('node:sqlite');
 
 const HOME = os.homedir();
-const DB_DEFAULT = path.resolve(__dirname, '../data/memory.db');
+// Keep generated history outside the npm package (which may be read-only).
+const DB_DEFAULT = path.join(HOME, '.solo-memory', 'memory.db');
 const CAP = 200000;
 const sources = ['codex', 'workbuddy', 'claude'];
 const stop = new Set('users user home documents desktop downloads appdata roaming local programdata tmp temp var opt mnt media c d e disk project projects src source app apps code workspace workspaces dev test tests build dist out bin lib libs vendor node nodejs modules node_modules components data config configs resources assets public static files docs doc logs cache main index api core base common utils helpers types interfaces models views new old backup master v1 v2 2024 2025 2026'.split(' '));
@@ -187,10 +188,15 @@ function recall(db, cwd, top = 5) {
   }).filter(s => s.admitted).sort((a,b) => b.score-a.score || String(b.ts).localeCompare(String(a.ts))).slice(0,top);
   return scored.map(s => ({source:s.source,title:s.rows[0].session_title,cwd:s.rows[0].cwd,ts:s.ts,score:s.score,...compress(s.rows)}));
 }
-function usage() { console.log(`solo-memory index [--source all|codex|claude|workbuddy] [--db PATH]\nsolo-memory search QUERY [--source codex|claude|workbuddy] [--limit N] [--db PATH]\nsolo-memory recall PROJECT_DIR [--top N] [--format text|md] [--db PATH]`); }
+function usage() { console.log(`solo-memory index [--source all|codex|claude|workbuddy] [--db PATH]
+solo-memory search QUERY [--source codex|claude|workbuddy] [--limit N] [--db PATH]
+solo-memory recall [PROJECT_DIR] [--top N] [--format text|md] [--db PATH]
+solo-memory compact [PROJECT_DIR] [--top N] [--db PATH]   # Markdown context cards
+solo-memory --help`); }
 function main(argv) {
   const [cmd,...rest] = argv;
-  if (!['index','search','recall'].includes(cmd)) { usage(); process.exitCode = cmd ? 1 : 0; return; }
+  if (!cmd || ['--help','-h','help'].includes(cmd)) { usage(); return; }
+  if (!['index','search','recall','compact'].includes(cmd)) { usage(); process.exitCode = 1; return; }
   const opts = {}, positional = [];
   for (let i=0;i<rest.length;i++) {
     if (rest[i].startsWith('--')) { const key = rest[i].slice(2); if (!['db','source','limit','top','format'].includes(key) || !rest[i+1] || rest[i+1].startsWith('--')) throw Error(`Invalid option: ${rest[i]}`); opts[key]=rest[++i]; }
@@ -203,9 +209,11 @@ function main(argv) {
     try { console.log(index(db, opts.source && opts.source !== 'all' ? [opts.source] : sources)); console.log(`Index: ${dbfile}`); } finally { db.close(); }
     return;
   }
-  if (!positional.length) throw Error(`Missing ${cmd === 'search' ? 'query' : 'project directory'}`);
+  if (cmd === 'search' && !positional.length) throw Error('Missing search query');
   if (cmd === 'search' && opts.source === 'all') throw Error('Use --source only for one source');
-  if (cmd === 'recall' && opts.source) throw Error('recall does not support --source');
+  if (cmd !== 'search' && opts.source) throw Error(`${cmd} does not support --source`);
+  if (cmd !== 'search' && positional.length > 1) throw Error('Expected one project directory');
+  if (cmd === 'compact' && opts.format && opts.format !== 'md') throw Error('compact always outputs Markdown');
   if (!fs.existsSync(dbfile)) { if (cmd === 'recall') { const db = openDb(dbfile); try { index(db); } finally { db.close(); } } else throw Error('Index missing; run solo-memory index first'); }
   const db = new DatabaseSync(dbfile, {readOnly:true});
   try {
@@ -216,9 +224,11 @@ function main(argv) {
     } else {
       const n = opts.top == null ? 5 : Number(opts.top);
       if (!Number.isSafeInteger(n) || n < 0 || (opts.format && !['md','text'].includes(opts.format))) throw Error('Invalid top or format');
-      const result = recall(db,positional[0],n);
-      if (opts.format === 'md') console.log(`# 项目上下文召回: ${positional[0]}`);
-      for (const r of result) console.log(`${opts.format === 'md' ? '##' : '---'} [${r.source}] ${r.title} (${r.ts}, score ${r.score})\n目录: ${r.cwd}\n意图: ${r.intent}\n${r.body}`);
+      const project = positional[0] || process.cwd();
+      const format = cmd === 'compact' ? 'md' : opts.format;
+      const result = recall(db,project,n);
+      if (format === 'md') console.log(`# 项目上下文召回: ${project}`);
+      for (const r of result) console.log(`${format === 'md' ? '##' : '---'} [${r.source}] ${r.title} (${r.ts}, score ${r.score})\n目录: ${r.cwd}\n意图: ${r.intent}\n${r.body}`);
       if (!result.length) console.log('未找到相关历史上下文。');
     }
   } finally { db.close(); }
